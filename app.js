@@ -1,14 +1,13 @@
 document.addEventListener('DOMContentLoaded', function() {
-  // DOM-elementer
   const searchInput = document.getElementById('searchInput');
   const resetBtn = document.getElementById('resetSearchBtn');
   const articlesContainer = document.getElementById('articlesContainer');
   const searchCounter = document.getElementById('searchCounter');
   const noResults = document.getElementById('noResults');
+  
   const loadMoreWrapper = document.getElementById('loadMoreWrapper');
   const loadMoreBtn = document.getElementById('loadMoreBtn');
   
-  // Applikasjonstilstand (State)
   let allArticles = []; 
   let filteredArticles = []; 
   let searchQuery = '';
@@ -19,15 +18,14 @@ document.addEventListener('DOMContentLoaded', function() {
   const ITEMS_PER_PAGE = 10; 
   let displayedCount = ITEMS_PER_PAGE; 
 
-  // Initialisering: Hent data og sjekk URL-deep-links
+  // Initialize the engine, check URL deep-links and tags
   async function loadArticles() {
     try {
-      const response = await fetch('https://githubusercontent.com');
+      const response = await fetch('https://raw.githubusercontent.com/sveinho/jcontent/refs/heads/main/index.json');
       if (!response.ok) throw new Error('Failed to load JSON registry data');
       allArticles = await response.json();
       
-      // Merk: Sørg for at renderGlobalTagCloud() er definert et sted i koden din
-      if (typeof renderGlobalTagCloud === 'function') renderGlobalTagCloud();
+      renderGlobalTagCloud();
       
       const urlParams = new URLSearchParams(window.location.search);
       const urlId = urlParams.get('id');
@@ -43,6 +41,7 @@ document.addEventListener('DOMContentLoaded', function() {
         filterArticles(true); 
       }
 
+      // Activate click listener for internal links
       installInternalAnchorHandler();
     } catch (error) {
       console.error(error);
@@ -52,7 +51,7 @@ document.addEventListener('DOMContentLoaded', function() {
     }
   }
 
-  // Gjenbrukbar instans av markdown-it
+  // Create and reuse a single clean markdown-it renderer instance
   function getMarkdownRenderer() {
     if (window.__mdInstance) return window.__mdInstance;
     const mdCtor = (typeof window.markdownit === 'function') ? window.markdownit : null;
@@ -63,19 +62,16 @@ document.addEventListener('DOMContentLoaded', function() {
     return md;
   }
 
-  // Rømmer spesialtegn for RegEx
   function escapeRegExp(string) { 
     return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); 
   }
 
-  // SIKKER MARKERING: Markerer søkeord i HTML uten å ødelegge HTML-tagger eller attributter
   function getHighlightedHTML(text, words) {
     if (words.length === 0 || !text) return text;
     let html = text;
     words.forEach(word => {
       const cleanWord = word.replace(/^\./, ''); 
-      // Negativ lookahead (?![^<>]*>) sikrer at vi ikke farger ord inni HTML-tagger (f.eks. <a href="...">)
-      const regex = new RegExp(`(${escapeRegExp(cleanWord)})(?![^<>]*>)`, 'gi');
+      const regex = new RegExp(`(${escapeRegExp(cleanWord)})`, 'gi');
       html = html.replace(regex, '<mark>$1</mark>');
     });
     return html;
@@ -85,69 +81,72 @@ document.addEventListener('DOMContentLoaded', function() {
     let timeoutId;
     return function(...args) {
       clearTimeout(timeoutId);
-      timeoutId = setTimeout(() => func.apply(this, args), delay);
+      timeoutId = setTimeout(() => {
+        func.apply(this, args);
+      }, delay);
     };
   }
 
-  // Stripper markdown-syntaks for å sitte igjen med ren tekst til fritekstsøk
+  // Extract plain text from markdown content (strip markdown syntax)
   function stripMarkdown(markdown) {
     if (!markdown) return '';
     return markdown
-      .replace(/#+\s/g, '')                           
-      .replace(/\*\*(.+?)\*\*/g, '$1')               
-      .replace(/\*(.+?)\*/g, '$1')                   
-      .replace(/\[(.+?)\]\(.+?\)/g, '$1')            
-      .replace(/`+(.+?)`+/g, '$1')                   
-      .replace(/```[\s\S]*?```/g, '')                
-      .replace(/^>+\s/gm, '')                        
-      .replace(/^[-*+]\s/gm, '')                     
-      .replace(/\n+/g, ' ')                          
+      .replace(/#+\s/g, '')                           // Remove headings
+      .replace(/\*\*(.+?)\*\*/g, '$1')               // Remove bold
+      .replace(/\*(.+?)\*/g, '$1')                   // Remove italics
+      .replace(/\[(.+?)\]\(.+?\)/g, '$1')            // Remove links [text](url)
+      .replace(/`+(.+?)`+/g, '$1')                   // Remove inline code
+      .replace(/```[\s\S]*?```/g, '')                // Remove code blocks
+      .replace(/^>+\s/gm, '')                        // Remove blockquotes
+      .replace(/^[-*+]\s/gm, '')                     // Remove list markers
+      .replace(/\n+/g, ' ')                          // Normalize whitespace
       .trim();
   }
-// Genererer en klikkbar innholdsfortegnelse (TOC) fra rå Markdown
-function generateTableOfContents(markdown) {
-  if (!markdown) return '';
-  
-  const lines = markdown.split('\n');
-  const tocItems = [];
 
-  lines.forEach(line => {
-    // Matcher linjer som starter med 1 til 4# fulgt av et mellomrom
-    const match = line.match(/^(#{1,4})\s+(.+)$/);
-    if (match) {
-      const level = match[1].length; // Hvor mange # (nivå 1-4)
-      const text = match[2].trim();
-      
-      // Lag en URL-vennlig ID (slug) på akkurat samme måte som scrollToHashInExpanded
-      const slug = text.toLowerCase()
-        .replace(/[^\w\s-]/g, '')
-        .replace(/\s+/g, '-');
+  // Smart scroll function: selects anchor if in URL, otherwise top of module
+  function scrollToHashInExpanded() {
+    try {
+      const hash = window.location.hash;
+      const expandedEl = articlesContainer.querySelector(`[data-id="${activeArticleId}"]`);
+      if (!expandedEl) return;
 
-      tocItems.push({ level, text, slug });
+      // 1. If URL has a hash, try to find the matching heading
+      if (hash) {
+        const anchorId = hash.startsWith('#') ? hash.slice(1) : hash;
+        
+        // Get all headings inside the open module
+        const headings = expandedEl.querySelectorAll('h1, h2, h3, h4');
+        let target = null;
+
+        headings.forEach(el => {
+          // Generate virtual ID based on heading text (like slugify)
+          const cleanText = el.textContent.trim().toLowerCase()
+            .replace(/[^\w\s-]/g, '')
+            .replace(/\s+/g, '-');
+          
+          if (el.id === anchorId || cleanText === anchorId) {
+            target = el;
+          }
+        });
+
+        // If found, scroll to it and return
+        if (target) {
+          target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          console.log(`Scrolled to section: #${anchorId}`);
+          return; 
+        }
+      }
+
+      // 2. FALLBACK: If no hash or not found, scroll to top of module
+      expandedEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      console.log(`Scrolled to top of module: ${activeArticleId}`);
+
+    } catch (err) {
+      console.warn('Scroll error:', err);
     }
-  });
+  }
 
-  if (tocItems.length === 0) return '';
-
-  // Bygg HTML-listen for innholdsfortegnelsen
-  const tocHTML = tocItems.map(item => {
-    return `
-      <li class="toc-item toc-level-${item.level}" style="padding-left: ${(item.level - 1) * 12}px; margin-bottom: 6px; font-size: 0.9em;">
-        <a href="#${item.slug}" class="toc-link" style="text-decoration: none; color: #0076d6;">${item.text}</a>
-      </li>
-    `;
-  }).join('');
-
-  return `
-    <nav class="article-toc" style="flex-shrink: 0; width: 220px; position: sticky; top: 20px; align-self: start; background: #fdfdfd; padding: 15px; border-left: 2px solid #eaeaea; max-height: calc(100vh - 40px); overflow-y: auto;">
-      <h4 style="margin-top: 0; margin-bottom: 12px; font-size: 0.95em; text-transform: uppercase; letter-spacing: 0.5px; color: #555;">Innhold</h4>
-      <ul style="list-style: none; padding: 0; margin: 0;">
-        ${tocHTML}
-      </ul>
-    </nav>
-  `;
-}
-  // Søkemotor med fulltekstsøk og vekting
+  // Enhanced search function with full-text content search
   function filterArticles(isNewQuery = false) {
     if (!articlesContainer) return;
     
@@ -159,14 +158,18 @@ function generateTableOfContents(markdown) {
         if (activeTrackFilter !== 'all' && article.track !== activeTrackFilter) return false;
         if (activeTagFilter && (!article.tags || !article.tags.includes(activeTagFilter))) return false;
 
+        // Build searchable text from all fields
         const titleText = (article.title || '').toLowerCase();
         const abstractText = (article.abstract || '').toLowerCase();
         const tagsText = (article.tags || []).join(' ').toLowerCase();
         const disciplineText = (article.discipline || '').toLowerCase();
+        
+        // NEW: Full-text search in content field
         const contentText = stripMarkdown(article.content || '').toLowerCase();
         
         const combinedSearchText = `${titleText} ${abstractText} ${tagsText} ${disciplineText} ${contentText}`;
 
+        // Check if all search words match in any part of the combined text
         return searchWords.every(word => {
           if (combinedSearchText.includes(word)) return true;
           const cleanWord = word.replace(/^\./, '');
@@ -175,7 +178,7 @@ function generateTableOfContents(markdown) {
         });
       });
 
-      // Sortering basert på poengsum (Tittel > Abstract > Innhold)
+      // Scoring: prioritize title matches > abstract > tags > content
       filteredArticles.sort((a, b) => {
         const titleA = (a.title || '').toLowerCase().trim();
         const titleB = (b.title || '').toLowerCase().trim();
@@ -188,20 +191,41 @@ function generateTableOfContents(markdown) {
         let scoreA = 0;
         let scoreB = 0;
 
-        if (titleA === firstWord || titleA === firstWord.replace(/^\./, '')) scoreA = 10;
-        else if (firstWord && (titleA.startsWith(firstWord) || titleA.startsWith(firstWord.replace(/^\./, '')))) scoreA = 9;
-        else if (titleA.includes(firstWord)) scoreA = 8;
-        else if (abstractA.includes(firstWord)) scoreA = 6;
-        else if (contentA.includes(firstWord)) scoreA = 3;
-        else scoreA = 1;
+        // Title matches (highest priority: 10, 9, 8)
+        if (titleA === firstWord || titleA === firstWord.replace(/^\./, '')) {
+          scoreA = 10;
+        } else if (firstWord && (titleA.startsWith(firstWord) || titleA.startsWith(firstWord.replace(/^\./, '')))) {
+          scoreA = 9;
+        } else if (titleA.includes(firstWord)) {
+          scoreA = 8;
+        }
+        // Abstract matches (medium priority: 6, 5, 4)
+        else if (abstractA.includes(firstWord)) {
+          scoreA = 6;
+        }
+        // Content matches (lower priority: 3, 2, 1)
+        else if (contentA.includes(firstWord)) {
+          scoreA = 3;
+        } else {
+          scoreA = 1;
+        }
 
-        if (titleB === firstWord || titleB === firstWord.replace(/^\./, '')) scoreB = 10;
-        else if (firstWord && (titleB.startsWith(firstWord) || titleB.startsWith(firstWord.replace(/^\./, '')))) scoreB = 9;
-        else if (titleB.includes(firstWord)) scoreB = 8;
-        else if (abstractB.includes(firstWord)) scoreB = 6;
-        else if (contentB.includes(firstWord)) scoreB = 3;
-        else scoreB = 1;
+        // Same for B
+        if (titleB === firstWord || titleB === firstWord.replace(/^\./, '')) {
+          scoreB = 10;
+        } else if (firstWord && (titleB.startsWith(firstWord) || titleB.startsWith(firstWord.replace(/^\./, '')))) {
+          scoreB = 9;
+        } else if (titleB.includes(firstWord)) {
+          scoreB = 8;
+        } else if (abstractB.includes(firstWord)) {
+          scoreB = 6;
+        } else if (contentB.includes(firstWord)) {
+          scoreB = 3;
+        } else {
+          scoreB = 1;
+        }
 
+        // Sort by score first, then alphabetically
         if (scoreB !== scoreA) {
           return scoreB - scoreA;
         } else {
@@ -209,12 +233,12 @@ function generateTableOfContents(markdown) {
         }
       });
     } else {
-      // Standardvisning uten aktivt søk
       filteredArticles = [...allArticles];
       
       if (activeTrackFilter !== 'all') {
         filteredArticles = filteredArticles.filter(article => article.track === activeTrackFilter);
       }
+      
       if (activeTagFilter) {
         filteredArticles = filteredArticles.filter(article => article.tags && article.tags.includes(activeTagFilter));
       }
@@ -233,15 +257,13 @@ function generateTableOfContents(markdown) {
     
     renderArticles();
   }
-  // Genererer og tegner opp modulene i DOM-en
+
+  // Renders learning modules and controls pagination slicing
   function renderArticles() {
     const searchWords = searchQuery.split(' ').filter(Boolean);
     const isSearching = searchWords.length > 0;
 
-    // Merk: Sørg for at updateSearchUI() er definert i koden din for telleverk
-    if (typeof updateSearchUI === 'function') {
-      updateSearchUI(filteredArticles.length, isSearching);
-    }
+    updateSearchUI(filteredArticles.length, isSearching);
 
     if (filteredArticles.length === 0) {
       articlesContainer.innerHTML = '';
@@ -265,42 +287,19 @@ function generateTableOfContents(markdown) {
         return `<button class="badge status-${tag.toLowerCase().trim()} tag-click-btn ${isActive}" data-tag="${tag}">#${displayTagText}</button>`;
       }).join(' ');
 
-      // NYTT UTDRAG (SNIPPET): Viser og markerer treff i lukket modul hvis ordet finnes dypere i teksten
-      let snippetHTML = '';
-      if (isSearching && !isExpanded) {
-        const plainContent = stripMarkdown(article.content || '');
-        const lowerContent = plainContent.toLowerCase();
-        const firstWord = (searchWords[0] || '').toLowerCase().replace(/^\./, '');
-        const matchIndex = lowerContent.indexOf(firstWord);
-
-        // Hvis ordet finnes i innholdet, men ikke i sammendraget/abstract
-        if (matchIndex !== -1 && !((article.abstract || '').toLowerCase().includes(firstWord))) {
-          const start = Math.max(0, matchIndex - 40);
-          const end = Math.min(plainContent.length, matchIndex + 80);
-          let snippet = plainContent.slice(start, end);
-          
-          if (start > 0) snippet = '...' + snippet;
-          if (end < plainContent.length) snippet = snippet + '...';
-          
-          const highlightedSnippet = getHighlightedHTML(snippet, searchWords);
-          snippetHTML = `<p class="search-snippet" style="font-size: 0.85em; color: #666; font-style: italic; margin: 8px 0; padding: 6px 10px; background: rgba(0,0,0,0.03); border-left: 3px solid #0076d6;">Treff i innhold: ${highlightedSnippet}</p>`;
-        }
-      }
-
-           let expandedHTML = '';
+      let expandedHTML = '';
       if (isExpanded) {
         const md = getMarkdownRenderer();
+        
+        // Use article.content directly
         let htmlContent = article.content && md 
           ? md.render(article.content) 
           : 'No content available for this module.';
 
+        // Highlight search words in rendered markdown content
         if (isSearching && searchWords.length > 0) {
           htmlContent = getHighlightedHTML(htmlContent, searchWords);
         }
-
-        // --- NYTT: Generer innholdsfortegnelsen fra Markdown ---
-        const tocHTML = generateTableOfContents(article.content || '');
-        // -------------------------------------------------------
 
         const nextArticle = allArticles.find(a => a.track === article.track && a.order === (article.order + 1));
         let nextBtnHTML = '';
@@ -308,58 +307,58 @@ function generateTableOfContents(markdown) {
           nextBtnHTML = `<button class="next-step-btn" data-next-id="${nextArticle.id}">Next Module: ${nextArticle.title} ➔</button>`;
         }
 
-        // Layouten endres her til å bruke en flex-container slik at TOC legger seg til høyre
         expandedHTML = `
-          <div class="full-content" style="display: flex; gap: 30px; margin-top: 15px; align-items: flex-start;">
-            <div class="markdown-body" style="flex-grow: 1; min-width: 0;">
-              ${htmlContent}
-              
-              <div class="learning-path-actions" style="margin-top: 30px;">
-                ${nextBtnHTML}
-                <button class="share-btn" data-id="${article.id}">Copy share link 🔗</button>
-                <button class="close-article-btn">Close Module ✕</button>
-              </div>
+          <div class="full-content">
+            <div class="markdown-body">${htmlContent}</div>
+            <div class="learning-path-actions">
+              ${nextBtnHTML}
+              <button class="share-btn" data-id="${article.id}">Copy share link 🔗</button>
+              <button class="close-article-btn">Close Module ✕</button>
             </div>
-            
-            ${tocHTML} <!-- Her settes høyremenyen inn -->
           </div>
         `;
       }
-  // Jevn rulling til hashtag inni en åpen modul, eller toppen av modulen som fallback
-  function scrollToHashInExpanded() {
-    try {
-      const hash = window.location.hash;
-      const expandedEl = articlesContainer.querySelector(`[data-id="${activeArticleId}"]`);
-      if (!expandedEl) return;
 
-      if (hash) {
-        const anchorId = hash.startsWith('#') ? hash.slice(1) : hash;
-        const headings = expandedEl.querySelectorAll('h1, h2, h3, h4');
-        let target = null;
+      const badgeClass = isExpanded ? 'badge discipline-badge is-open' : 'badge discipline-badge';
 
-        headings.forEach(el => {
-          const cleanText = el.textContent.trim().toLowerCase()
-            .replace(/[^\w\s-]/g, '')
-            .replace(/\s+/g, '-');
+      return `
+        <article class="filterable" data-id="${article.id}">
+          <div class="article-header" style="display: flex; justify-content: space-between; align-items: flex-start; gap: 15px;">
+            <h2 class="article-title-clickable" style="cursor: pointer; margin: 0;">${displayTitle}</h2>
+            <button class="${badgeClass}" data-id="${article.id}" style="cursor: pointer; flex-shrink: 0; white-space: nowrap;">
+              ${disciplineValue}
+            </button>
+          </div>
           
-          if (el.id === anchorId || cleanText === anchorId) {
-            target = el;
-          }
-        });
+          <p class="abstract-text">${displayAbstract}</p>
+          ${expandedHTML}
+          
+          <div class="article-tags-bottom">
+            ${tagsHTML}
+          </div>
+        </article>
+      `;
+    }).join('');
 
-        if (target) {
-          target.scrollIntoView({ behavior: 'smooth', block: 'start' });
-          return; 
-        }
+    attachArticleClickEvents();
+
+    if (loadMoreWrapper) {
+      if (filteredArticles.length > displayedCount) {
+        loadMoreWrapper.classList.remove('hidden');
+      } else {
+        loadMoreWrapper.classList.add('hidden');
       }
+    }
 
-      expandedEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    } catch (err) {
-      console.warn('Scroll error:', err);
+    // Run scroll function after DOM sync
+    if (activeArticleId) {
+      setTimeout(() => {
+        scrollToHashInExpanded();
+      }, 60);
     }
   }
 
-  // Delegering av klikk på interne lenker generert fra Markdown
+  // Delegated click handler for internal anchor links inside rendered markdown
   let _anchorHandlerInstalled = false;
   function installInternalAnchorHandler() {
     if (_anchorHandlerInstalled || !articlesContainer) return;
@@ -375,6 +374,7 @@ function generateTableOfContents(markdown) {
         const articleEl = a.closest('.filterable') || articlesContainer.querySelector(`.filterable[data-id="${activeArticleId}"]`);
         if (!articleEl) return;
         
+        // Update URL with new hash
         history.pushState({}, '', `${window.location.pathname}?id=${articleEl.dataset.id}#${anchor}`);
         scrollToHashInExpanded();
         return;
@@ -387,8 +387,7 @@ function generateTableOfContents(markdown) {
 
         if (url.pathname === window.location.pathname && idParam) {
           e.preventDefault();
-          // Merk: Sørg for at handleModuleSelection() finnes eksternt, eller kaller din logikk
-          if (activeArticleId !== idParam && typeof handleModuleSelection === 'function') {
+          if (activeArticleId !== idParam) {
             await handleModuleSelection(idParam);
           }
           if (hash) {
@@ -399,38 +398,41 @@ function generateTableOfContents(markdown) {
           return;
         }
       } catch (err) {
-        // Ignorer eksterne lenker
+        // Fallback for external links
       }
     }, false);
 
     _anchorHandlerInstalled = true;
   }
 
-  // Kobler opp klikkeventer på generert HTML (Kjøres etter hver rendring)
+  // Async loaders, navigation logic, and clipboard event handling
   function attachArticleClickEvents() {
     articlesContainer.querySelectorAll('.filterable').forEach(articleEl => {
       const articleId = articleEl.dataset.id;
       
+      // 1. Click on tag badges at bottom
       articleEl.querySelectorAll('.tag-click-btn').forEach(tagBtn => {
         tagBtn.addEventListener('click', function(e) {
           e.stopPropagation();
-          if (typeof handleTagSelection === 'function') handleTagSelection(this.dataset.tag);
+          handleTagSelection(this.dataset.tag);
         });
       });
 
+      // 2. Click on discipline badge (top right)
       const disciplineBtn = articleEl.querySelector('.discipline-badge');
       if (disciplineBtn) {
         disciplineBtn.addEventListener('click', function(e) {
           e.stopPropagation();
-          if (typeof handleModuleSelection === 'function') handleModuleSelection(articleId);
+          handleModuleSelection(articleId);
         });
       }
 
+      // 3. Click on title (top left)
       const titleEl = articleEl.querySelector('.article-title-clickable');
       if (titleEl) {
         titleEl.addEventListener('click', function(e) {
           e.stopPropagation();
-          if (typeof handleModuleSelection === 'function') handleModuleSelection(articleId);
+          handleModuleSelection(articleId);
         });
       }
 
@@ -438,7 +440,8 @@ function generateTableOfContents(markdown) {
       if (nextBtn) {
         nextBtn.addEventListener('click', function(e) {
           e.stopPropagation();
-          if (typeof handleModuleSelection === 'function') handleModuleSelection(this.dataset.nextId);
+          const nextId = this.dataset.nextId;
+          handleModuleSelection(nextId);
         });
       }
 
@@ -447,29 +450,151 @@ function generateTableOfContents(markdown) {
         shareBtn.addEventListener('click', function(e) {
           e.stopPropagation(); 
           const shareUrl = `${window.location.origin}${window.location.pathname}?id=${articleId}`;
+          
           navigator.clipboard.writeText(shareUrl).then(() => {
             this.textContent = 'Link copied! ✔';
             this.classList.add('copied');
+            
+            setTimeout(() => {
+              this.textContent = 'Copy share link 🔗';
+              this.classList.remove('copied');
+            }, 2000);
+          }).catch(err => {
+            console.error('Could not copy link: ', err);
           });
         });
       }
-      
-      // Lukkeknapp for modulen
+
       const closeBtn = articleEl.querySelector('.close-article-btn');
       if (closeBtn) {
         closeBtn.addEventListener('click', function(e) {
           e.stopPropagation();
           activeArticleId = null;
-          // Nullstiller URL id parametre men beholder evt søk
-          const url = new URL(window.location.href);
-          url.searchParams.delete('id');
-          history.pushState({}, '', url);
+          history.pushState({}, '', window.location.pathname); 
           filterArticles(false);
         });
       }
     });
   }
 
-  // Fyr av applikasjonen
+  function renderGlobalTagCloud() {
+    const cloudContainer = document.getElementById('globalTagCloud');
+    if (!cloudContainer) return;
+
+    const uniqueTags = new Set();
+    allArticles.forEach(article => {
+      if (article.tags && Array.isArray(article.tags)) {
+        article.tags.forEach(tag => uniqueTags.add(tag.trim()));
+      }
+    });
+
+    if (uniqueTags.size === 0) {
+      cloudContainer.innerHTML = '';
+      return;
+    }
+
+    cloudContainer.innerHTML = Array.from(uniqueTags).sort().map(tag => {
+      const isActive = tag === activeTagFilter ? 'active' : '';
+      return `<button class="global-tag-btn ${isActive}" data-tag="${tag}">#${tag}</button>`;
+    }).join(' ');
+
+    cloudContainer.querySelectorAll('.global-tag-btn').forEach(btn => {
+      btn.addEventListener('click', function() {
+        handleTagSelection(this.dataset.tag);
+      });
+    });
+  }
+
+  function handleTagSelection(tagName) {
+    if (activeTagFilter === tagName) {
+      activeTagFilter = null;
+      history.pushState({}, '', window.location.pathname);
+    } else {
+      activeTagFilter = tagName;
+      history.pushState({ tag: tagName }, '', `?tag=${encodeURIComponent(tagName)}`);
+      if (resetBtn) resetBtn.classList.remove('invisible');
+    }
+    
+    renderGlobalTagCloud();
+    filterArticles(true);
+  }
+
+  // Central state controller for processing learning track traversal
+  async function handleModuleSelection(articleId) {
+    const targetArticle = allArticles.find(a => a.id === articleId);
+
+    if (activeArticleId === articleId) {
+      activeArticleId = null;
+      history.pushState({}, '', window.location.pathname); 
+      filterArticles(false);
+      return;
+    }
+
+    activeArticleId = articleId;
+    const currentHash = window.location.hash || '';
+    history.pushState({id: articleId}, '', `?id=${articleId}${currentHash}`); 
+    filterArticles(false);
+  }
+
+  function updateSearchUI(count, isSearching) {
+    if (searchCounter) {
+      const filterNotice = activeTagFilter ? ` filtered by #${activeTagFilter}` : '';
+      searchCounter.textContent = isSearching 
+        ? `Found ${count} matching steps sorted by relevance${filterNotice}`
+        : `Track index loaded. Total modules available: ${count}${filterNotice}`;
+    }
+    if (noResults) noResults.classList.toggle('hidden', count > 0);
+  }
+
+  function resetEntireRegistry() {
+    if (searchInput) searchInput.value = ''; 
+    searchQuery = ''; 
+    activeArticleId = null;
+    activeTagFilter = null; 
+    history.pushState({}, '', window.location.pathname); 
+    if (resetBtn) resetBtn.classList.add('invisible');
+    renderGlobalTagCloud(); 
+    filterArticles(true);
+  }
+
+  if (loadMoreBtn) {
+    loadMoreBtn.addEventListener('click', function() {
+      displayedCount += ITEMS_PER_PAGE;
+      renderArticles();
+    });
+  }
+
+  if (searchInput) {
+    searchInput.addEventListener('input', debounce(function(e) {
+      const currentInput = e.target.value.trim();
+      searchQuery = currentInput.toLowerCase();
+      
+      if (resetBtn) {
+        if (currentInput.length > 0 || activeTagFilter) { 
+          resetBtn.classList.remove('invisible');
+        } else {
+          resetBtn.classList.add('invisible');
+        }
+      }
+      filterArticles(true);
+    }, 250));
+  }
+
+  if (resetBtn) {
+    resetBtn.addEventListener('click', resetEntireRegistry);
+  }
+
+  const filterButtons = document.querySelectorAll('.filter-btn');
+  filterButtons.forEach(btn => {
+    btn.addEventListener('click', function() {
+      filterButtons.forEach(b => b.classList.remove('active'));
+      this.classList.add('active');
+      
+      activeTrackFilter = this.dataset.track;
+      filterArticles(true);
+    });
+  });
+
+  // Start the application
   loadArticles();
 });
