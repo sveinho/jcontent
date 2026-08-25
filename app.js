@@ -23,7 +23,7 @@ document.addEventListener('DOMContentLoaded', function() {
   // Initialisering: Hent data og sjekk URL-deep-links
   async function loadArticles() {
     try {
-      const response = await fetch('https://githubusercontent.com');
+      const response = await fetch('https://raw.githubusercontent.com/sveinho/jcontent/refs/heads/main/index.json');
       if (!response.ok) throw new Error('Failed to load JSON registry data');
       allArticles = await response.json();
       
