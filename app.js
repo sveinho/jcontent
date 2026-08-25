@@ -104,6 +104,49 @@ document.addEventListener('DOMContentLoaded', function() {
       .replace(/\n+/g, ' ')                          
       .trim();
   }
+// Genererer en klikkbar innholdsfortegnelse (TOC) fra rå Markdown
+function generateTableOfContents(markdown) {
+  if (!markdown) return '';
+  
+  const lines = markdown.split('\n');
+  const tocItems = [];
+
+  lines.forEach(line => {
+    // Matcher linjer som starter med 1 til 4# fulgt av et mellomrom
+    const match = line.match(/^(#{1,4})\s+(.+)$/);
+    if (match) {
+      const level = match[1].length; // Hvor mange # (nivå 1-4)
+      const text = match[2].trim();
+      
+      // Lag en URL-vennlig ID (slug) på akkurat samme måte som scrollToHashInExpanded
+      const slug = text.toLowerCase()
+        .replace(/[^\w\s-]/g, '')
+        .replace(/\s+/g, '-');
+
+      tocItems.push({ level, text, slug });
+    }
+  });
+
+  if (tocItems.length === 0) return '';
+
+  // Bygg HTML-listen for innholdsfortegnelsen
+  const tocHTML = tocItems.map(item => {
+    return `
+      <li class="toc-item toc-level-${item.level}" style="padding-left: ${(item.level - 1) * 12}px; margin-bottom: 6px; font-size: 0.9em;">
+        <a href="#${item.slug}" class="toc-link" style="text-decoration: none; color: #0076d6;">${item.text}</a>
+      </li>
+    `;
+  }).join('');
+
+  return `
+    <nav class="article-toc" style="flex-shrink: 0; width: 220px; position: sticky; top: 20px; align-self: start; background: #fdfdfd; padding: 15px; border-left: 2px solid #eaeaea; max-height: calc(100vh - 40px); overflow-y: auto;">
+      <h4 style="margin-top: 0; margin-bottom: 12px; font-size: 0.95em; text-transform: uppercase; letter-spacing: 0.5px; color: #555;">Innhold</h4>
+      <ul style="list-style: none; padding: 0; margin: 0;">
+        ${tocHTML}
+      </ul>
+    </nav>
+  `;
+}
   // Søkemotor med fulltekstsøk og vekting
   function filterArticles(isNewQuery = false) {
     if (!articlesContainer) return;
@@ -244,8 +287,7 @@ document.addEventListener('DOMContentLoaded', function() {
         }
       }
 
-      // Ekspandert innhold (Åpen modul)
-      let expandedHTML = '';
+           let expandedHTML = '';
       if (isExpanded) {
         const md = getMarkdownRenderer();
         let htmlContent = article.content && md 
@@ -256,57 +298,178 @@ document.addEventListener('DOMContentLoaded', function() {
           htmlContent = getHighlightedHTML(htmlContent, searchWords);
         }
 
+        // --- NYTT: Generer innholdsfortegnelsen fra Markdown ---
+        const tocHTML = generateTableOfContents(article.content || '');
+        // -------------------------------------------------------
+
         const nextArticle = allArticles.find(a => a.track === article.track && a.order === (article.order + 1));
         let nextBtnHTML = '';
         if (nextArticle) {
           nextBtnHTML = `<button class="next-step-btn" data-next-id="${nextArticle.id}">Next Module: ${nextArticle.title} ➔</button>`;
         }
 
+        // Layouten endres her til å bruke en flex-container slik at TOC legger seg til høyre
         expandedHTML = `
-          <div class="full-content">
-            <div class="markdown-body">${htmlContent}</div>
-            <div class="learning-path-actions">
-              ${nextBtnHTML}
-              <button class="share-btn" data-id="${article.id}">Copy share link 🔗</button>
-              <button class="close-article-btn">Close Module ✕</button>
+          <div class="full-content" style="display: flex; gap: 30px; margin-top: 15px; align-items: flex-start;">
+            <div class="markdown-body" style="flex-grow: 1; min-width: 0;">
+              ${htmlContent}
+              
+              <div class="learning-path-actions" style="margin-top: 30px;">
+                ${nextBtnHTML}
+                <button class="share-btn" data-id="${article.id}">Copy share link 🔗</button>
+                <button class="close-article-btn">Close Module ✕</button>
+              </div>
             </div>
+            
+            ${tocHTML} <!-- Her settes høyremenyen inn -->
           </div>
         `;
       }
+  // Jevn rulling til hashtag inni en åpen modul, eller toppen av modulen som fallback
+  function scrollToHashInExpanded() {
+    try {
+      const hash = window.location.hash;
+      const expandedEl = articlesContainer.querySelector(`[data-id="${activeArticleId}"]`);
+      if (!expandedEl) return;
 
-      const badgeClass = isExpanded ? 'badge discipline-badge is-open' : 'badge discipline-badge';
+      if (hash) {
+        const anchorId = hash.startsWith('#') ? hash.slice(1) : hash;
+        const headings = expandedEl.querySelectorAll('h1, h2, h3, h4');
+        let target = null;
 
-      return `
-        <article class="filterable" data-id="${article.id}">
-          <div class="article-header" style="display: flex; justify-content: space-between; align-items: flex-start; gap: 15px;">
-            <h2 class="article-title-clickable" style="cursor: pointer; margin: 0;">${displayTitle}</h2>
-            <button class="${badgeClass}" data-id="${article.id}" style="cursor: pointer; flex-shrink: 0; white-space: nowrap;">
-              ${disciplineValue}
-            </button>
-          </div>
+        headings.forEach(el => {
+          const cleanText = el.textContent.trim().toLowerCase()
+            .replace(/[^\w\s-]/g, '')
+            .replace(/\s+/g, '-');
           
-          <p class="abstract-text">${displayAbstract}</p>
-          ${snippetHTML} 
-          ${expandedHTML}
-          
-          <div class="article-tags-bottom">
-            ${tagsHTML}
-          </div>
-        </article>
-      `;
-    }).join('');
+          if (el.id === anchorId || cleanText === anchorId) {
+            target = el;
+          }
+        });
 
-    attachArticleClickEvents();
-
-    if (loadMoreWrapper) {
-      if (filteredArticles.length > displayedCount) {
-        loadMoreWrapper.classList.remove('hidden');
-      } else {
-        loadMoreWrapper.classList.add('hidden');
+        if (target) {
+          target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          return; 
+        }
       }
-    }
 
-    if (activeArticleId) {
-      setTimeout(() => scrollToHashInExpanded(), 60);
+      expandedEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    } catch (err) {
+      console.warn('Scroll error:', err);
     }
   }
+
+  // Delegering av klikk på interne lenker generert fra Markdown
+  let _anchorHandlerInstalled = false;
+  function installInternalAnchorHandler() {
+    if (_anchorHandlerInstalled || !articlesContainer) return;
+
+    articlesContainer.addEventListener('click', async function(e) {
+      const a = e.target.closest('a');
+      if (!a) return;
+      const href = a.getAttribute('href') || '';
+
+      if (href.startsWith('#')) {
+        e.preventDefault();
+        const anchor = href.slice(1);
+        const articleEl = a.closest('.filterable') || articlesContainer.querySelector(`.filterable[data-id="${activeArticleId}"]`);
+        if (!articleEl) return;
+        
+        history.pushState({}, '', `${window.location.pathname}?id=${articleEl.dataset.id}#${anchor}`);
+        scrollToHashInExpanded();
+        return;
+      }
+
+      try {
+        const url = new URL(href, window.location.href);
+        const hash = url.hash || '';
+        const idParam = url.searchParams.get('id');
+
+        if (url.pathname === window.location.pathname && idParam) {
+          e.preventDefault();
+          // Merk: Sørg for at handleModuleSelection() finnes eksternt, eller kaller din logikk
+          if (activeArticleId !== idParam && typeof handleModuleSelection === 'function') {
+            await handleModuleSelection(idParam);
+          }
+          if (hash) {
+            window.location.hash = hash;
+            setTimeout(scrollToHashInExpanded, 100);
+            history.pushState({}, '', `${window.location.pathname}?id=${idParam}${hash}`);
+          }
+          return;
+        }
+      } catch (err) {
+        // Ignorer eksterne lenker
+      }
+    }, false);
+
+    _anchorHandlerInstalled = true;
+  }
+
+  // Kobler opp klikkeventer på generert HTML (Kjøres etter hver rendring)
+  function attachArticleClickEvents() {
+    articlesContainer.querySelectorAll('.filterable').forEach(articleEl => {
+      const articleId = articleEl.dataset.id;
+      
+      articleEl.querySelectorAll('.tag-click-btn').forEach(tagBtn => {
+        tagBtn.addEventListener('click', function(e) {
+          e.stopPropagation();
+          if (typeof handleTagSelection === 'function') handleTagSelection(this.dataset.tag);
+        });
+      });
+
+      const disciplineBtn = articleEl.querySelector('.discipline-badge');
+      if (disciplineBtn) {
+        disciplineBtn.addEventListener('click', function(e) {
+          e.stopPropagation();
+          if (typeof handleModuleSelection === 'function') handleModuleSelection(articleId);
+        });
+      }
+
+      const titleEl = articleEl.querySelector('.article-title-clickable');
+      if (titleEl) {
+        titleEl.addEventListener('click', function(e) {
+          e.stopPropagation();
+          if (typeof handleModuleSelection === 'function') handleModuleSelection(articleId);
+        });
+      }
+
+      const nextBtn = articleEl.querySelector('.next-step-btn');
+      if (nextBtn) {
+        nextBtn.addEventListener('click', function(e) {
+          e.stopPropagation();
+          if (typeof handleModuleSelection === 'function') handleModuleSelection(this.dataset.nextId);
+        });
+      }
+
+      const shareBtn = articleEl.querySelector('.share-btn');
+      if (shareBtn) {
+        shareBtn.addEventListener('click', function(e) {
+          e.stopPropagation(); 
+          const shareUrl = `${window.location.origin}${window.location.pathname}?id=${articleId}`;
+          navigator.clipboard.writeText(shareUrl).then(() => {
+            this.textContent = 'Link copied! ✔';
+            this.classList.add('copied');
+          });
+        });
+      }
+      
+      // Lukkeknapp for modulen
+      const closeBtn = articleEl.querySelector('.close-article-btn');
+      if (closeBtn) {
+        closeBtn.addEventListener('click', function(e) {
+          e.stopPropagation();
+          activeArticleId = null;
+          // Nullstiller URL id parametre men beholder evt søk
+          const url = new URL(window.location.href);
+          url.searchParams.delete('id');
+          history.pushState({}, '', url);
+          filterArticles(false);
+        });
+      }
+    });
+  }
+
+  // Fyr av applikasjonen
+  loadArticles();
+});
