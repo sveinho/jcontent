@@ -41,7 +41,7 @@ document.addEventListener('DOMContentLoaded', function() {
         filterArticles(true); 
       }
 
-      // Aktivate click listener for internal links
+      // Activate click listener for internal links
       installInternalAnchorHandler();
     } catch (error) {
       console.error(error);
@@ -87,6 +87,22 @@ document.addEventListener('DOMContentLoaded', function() {
     };
   }
 
+  // Extract plain text from markdown content (strip markdown syntax)
+  function stripMarkdown(markdown) {
+    if (!markdown) return '';
+    return markdown
+      .replace(/#+\s/g, '')                           // Remove headings
+      .replace(/\*\*(.+?)\*\*/g, '$1')               // Remove bold
+      .replace(/\*(.+?)\*/g, '$1')                   // Remove italics
+      .replace(/\[(.+?)\]\(.+?\)/g, '$1')            // Remove links [text](url)
+      .replace(/`+(.+?)`+/g, '$1')                   // Remove inline code
+      .replace(/```[\s\S]*?```/g, '')                // Remove code blocks
+      .replace(/^>+\s/gm, '')                        // Remove blockquotes
+      .replace(/^[-*+]\s/gm, '')                     // Remove list markers
+      .replace(/\n+/g, ' ')                          // Normalize whitespace
+      .trim();
+  }
+
   // Smart scroll function: selects anchor if in URL, otherwise top of module
   function scrollToHashInExpanded() {
     try {
@@ -130,7 +146,7 @@ document.addEventListener('DOMContentLoaded', function() {
     }
   }
 
-  // Search Engine: Filters and sorts elements by track order, tags or relevance search
+  // Enhanced search function with full-text content search
   function filterArticles(isNewQuery = false) {
     if (!articlesContainer) return;
     
@@ -142,11 +158,18 @@ document.addEventListener('DOMContentLoaded', function() {
         if (activeTrackFilter !== 'all' && article.track !== activeTrackFilter) return false;
         if (activeTagFilter && (!article.tags || !article.tags.includes(activeTagFilter))) return false;
 
+        // Build searchable text from all fields
         const titleText = (article.title || '').toLowerCase();
         const abstractText = (article.abstract || '').toLowerCase();
-        const tagsText = (article.tags || []).join(' ').toLowerCase(); 
-        const combinedSearchText = `${titleText} ${abstractText} ${tagsText}`;
+        const tagsText = (article.tags || []).join(' ').toLowerCase();
+        const disciplineText = (article.discipline || '').toLowerCase();
+        
+        // NEW: Full-text search in content field
+        const contentText = stripMarkdown(article.content || '').toLowerCase();
+        
+        const combinedSearchText = `${titleText} ${abstractText} ${tagsText} ${disciplineText} ${contentText}`;
 
+        // Check if all search words match in any part of the combined text
         return searchWords.every(word => {
           if (combinedSearchText.includes(word)) return true;
           const cleanWord = word.replace(/^\./, '');
@@ -155,30 +178,54 @@ document.addEventListener('DOMContentLoaded', function() {
         });
       });
 
+      // Scoring: prioritize title matches > abstract > tags > content
       filteredArticles.sort((a, b) => {
         const titleA = (a.title || '').toLowerCase().trim();
         const titleB = (b.title || '').toLowerCase().trim();
+        const abstractA = (a.abstract || '').toLowerCase();
+        const abstractB = (b.abstract || '').toLowerCase();
+        const contentA = stripMarkdown(a.content || '').toLowerCase();
+        const contentB = stripMarkdown(b.content || '').toLowerCase();
         const firstWord = searchWords[0] || ''; 
 
         let scoreA = 0;
         let scoreB = 0;
 
+        // Title matches (highest priority: 10, 9, 8)
         if (titleA === firstWord || titleA === firstWord.replace(/^\./, '')) {
-          scoreA = 3;
+          scoreA = 10;
         } else if (firstWord && (titleA.startsWith(firstWord) || titleA.startsWith(firstWord.replace(/^\./, '')))) {
-          scoreA = 2;
+          scoreA = 9;
+        } else if (titleA.includes(firstWord)) {
+          scoreA = 8;
+        }
+        // Abstract matches (medium priority: 6, 5, 4)
+        else if (abstractA.includes(firstWord)) {
+          scoreA = 6;
+        }
+        // Content matches (lower priority: 3, 2, 1)
+        else if (contentA.includes(firstWord)) {
+          scoreA = 3;
         } else {
           scoreA = 1;
         }
 
+        // Same for B
         if (titleB === firstWord || titleB === firstWord.replace(/^\./, '')) {
-          scoreB = 3;
+          scoreB = 10;
         } else if (firstWord && (titleB.startsWith(firstWord) || titleB.startsWith(firstWord.replace(/^\./, '')))) {
-          scoreB = 2;
+          scoreB = 9;
+        } else if (titleB.includes(firstWord)) {
+          scoreB = 8;
+        } else if (abstractB.includes(firstWord)) {
+          scoreB = 6;
+        } else if (contentB.includes(firstWord)) {
+          scoreB = 3;
         } else {
           scoreB = 1;
         }
 
+        // Sort by score first, then alphabetically
         if (scoreB !== scoreA) {
           return scoreB - scoreA;
         } else {
@@ -244,10 +291,15 @@ document.addEventListener('DOMContentLoaded', function() {
       if (isExpanded) {
         const md = getMarkdownRenderer();
         
-        // KEY CHANGE: Use article.content directly instead of article.markdownContent
+        // Use article.content directly
         let htmlContent = article.content && md 
           ? md.render(article.content) 
           : 'No content available for this module.';
+
+        // Highlight search words in rendered markdown content
+        if (isSearching && searchWords.length > 0) {
+          htmlContent = getHighlightedHTML(htmlContent, searchWords);
+        }
 
         const nextArticle = allArticles.find(a => a.track === article.track && a.order === (article.order + 1));
         let nextBtnHTML = '';
@@ -482,9 +534,6 @@ document.addEventListener('DOMContentLoaded', function() {
     const currentHash = window.location.hash || '';
     history.pushState({id: articleId}, '', `?id=${articleId}${currentHash}`); 
     filterArticles(false);
-
-    // KEY CHANGE: No more fetch needed - content is already in targetArticle.content
-    // The content is rendered immediately in filterArticles() → renderArticles()
   }
 
   function updateSearchUI(count, isSearching) {
