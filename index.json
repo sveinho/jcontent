@@ -6,7 +6,8 @@
     "abstract": "First you will need to choose a learning path to get started. Choose the one that aligns best with your relevant role: researcher, manager or trainer. The same topic can often be described within all three learning paths and based on this: You should limit your search or widening it to include the wanted learning paths (either one or all). You will need to use three or more letters in a search. All modules are interactive and can be opened or closed according to your preference. Hopefully, this is enough information to navigate this resource. Lets get started.",
     "tags": ["guidance", "raw-data"],
     "track": "info",
-    "order": 1
+    "order": 1,
+    "content": "innholdet er her"
   },
   {
     "id": "data-management-researchers",
@@ -15,7 +16,8 @@
     "abstract": "Learn how to structure and document your raw research data to meet standards and open-science policies.",
     "tags": ["fair", "quality", "metadata"], 
      "track": "researchers",
-     "order": 1
+     "order": 1,
+    "content": "innhold kan være her"
   },
   {
     "id": "data-sharing-researchers",
@@ -24,7 +26,8 @@
     "abstract": "Learn how to find a good home for your data.",
     "tags": ["EDEN registry", "re3data", "trustworthy"],
     "track": "researchers",
-    "order": 2
+    "order": 2,
+    "content": "her bor det vaere"
   },
   {
     "id": "preservation-researchers",
