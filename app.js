@@ -21,7 +21,7 @@ document.addEventListener('DOMContentLoaded', function() {
   // Initialize the engine, check URL deep-links and tags
   async function loadArticles() {
     try {
-      const response = await fetch('index.json');
+      const response = await fetch('https://github.com/sveinho/jcontent/blob/main/index.json');
       if (!response.ok) throw new Error('Failed to load JSON registry data');
       allArticles = await response.json();
       
