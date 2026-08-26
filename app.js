@@ -155,6 +155,28 @@ document.addEventListener('DOMContentLoaded', function() {
 
     if (isSearching) {
       filteredArticles = allArticles.filter(article => {
+
+const contentText = stripMarkdown(article.content || '').toLowerCase();
+const combinedSearchText = `${titleText} ${abstractText} ${tagsText} ${disciplineText} ${contentText}`;
+
+const matchesAll = searchWords.every(word => combinedSearchText.includes(word));
+
+if (matchesAll && isSearching) {
+    // NYTT: Sjekk om treffet er i innholdet, men IKKE i tittel/abstract
+    const firstWord = searchWords[0] || '';
+    article.hasContentMatchOnly = contentText.includes(firstWord) && 
+                                  !titleText.includes(firstWord) && 
+                                  !abstractText.includes(firstWord);
+    
+    // NYTT: Lag et lite tekstutdrag (snippet) rundt søkeordet
+    if (article.hasContentMatchOnly) {
+        const index = contentText.indexOf(firstWord);
+        const start = Math.max(0, index - 40);
+        const end = Math.min(contentText.length, index + firstWord.length + 40);
+        let snippet = stripMarkdown(article.content).substring(start, end);
+        article.searchSnippet = `...${snippet}...`;
+    }
+     }   
         if (activeTrackFilter !== 'all' && article.track !== activeTrackFilter) return false;
         if (activeTagFilter && (!article.tags || !article.tags.includes(activeTagFilter))) return false;
 
@@ -165,8 +187,7 @@ document.addEventListener('DOMContentLoaded', function() {
         const disciplineText = (article.discipline || '').toLowerCase();
         
         // NEW: Full-text search in content field
-        const contentText = stripMarkdown(article.content || '').toLowerCase();
-        
+        const contentText = stripMarkdown(article.content || '').toLowerCase();    
         const combinedSearchText = `${titleText} ${abstractText} ${tagsText} ${disciplineText} ${contentText}`;
 
         // Check if all search words match in any part of the combined text
@@ -274,6 +295,20 @@ document.addEventListener('DOMContentLoaded', function() {
     const itemsToRender = filteredArticles.slice(0, displayedCount);
 
     articlesContainer.innerHTML = itemsToRender.map(article => {
+
+// Inne i itemsToRender.map(article => { ...
+let insideTagHTML = '';
+let snippetHTML = '';
+
+if (article.hasContentMatchOnly && !isExpanded) {
+    // Legger til en "Inside"-badge
+    insideTagHTML = `<span class="badge status-inside" style="background-color: #6f42c1; color: white; margin-left: 5px;">📍 Svar i tekst</span>`;
+    
+    // Vis tekstutdraget med utheving
+    const highlightedSnippet = getHighlightedHTML(article.searchSnippet, searchWords);
+    snippetHTML = `<p class="search-snippet" style="font-style: italic; font-size: 0.9em; background: #f8f9fa; padding: 5px; border-left: 3px solid #6f42c1;">${highlightedSnippet}</p>`;
+}
+
       const isExpanded = article.id === activeArticleId;
       const displayTitle = isSearching ? getHighlightedHTML(article.title || '', searchWords) : article.title;
       const displayAbstract = isSearching ? getHighlightedHTML(article.abstract || '', searchWords) : (article.abstract || '');
