@@ -7,7 +7,7 @@
     "tags": ["guidance", "raw-data"],
     "track": "info",
     "order": 1,
-    "content": "jeppsipepsi"
+    "content": "<div class=\"content\"><h1 class=\"title\">Hello World</h1><p>This is a new line.\\nNext paragraph.</p></div>"
   },
   {
     "id": "data-management-researchers",
